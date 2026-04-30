@@ -593,8 +593,6 @@
         </aside>
     </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
 <script>
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -661,17 +659,6 @@ let playerId = "";
 let happyTimer = 0;
 const maxBricks = 8;
 const leaderboardKey = "slime-rhythm-leaderboard";
-const firebaseConfig = {
-    apiKey: "",
-    authDomain: "",
-    projectId: ""
-};
-let remoteDb = null;
-
-if (window.firebase && firebaseConfig.apiKey && firebaseConfig.projectId) {
-    firebase.initializeApp(firebaseConfig);
-    remoteDb = firebase.firestore();
-}
 
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -751,7 +738,10 @@ function createNote(time) {
         holding: false,
         missed: false,
         brickPenalty: false,
-        holdScoreTimer: 0
+        holdScoreTimer: 0,
+        heldPx: 0,
+        missedPx: 0,
+        completed: false
     });
     lastNoteTime = time;
 }
@@ -786,8 +776,7 @@ function updateNotes() {
         const note = notes[i];
         note.y += speed;
 
-        ctx.fillStyle = note.missed ? "#333" : getNoteColor(note);
-        ctx.fillRect(note.x + 5, note.y, note.w - 10, note.h);
+        drawNote(note);
 
         if (note.isLong) {
             updateLongNote(note, i);
@@ -803,6 +792,58 @@ function getNoteColor(note) {
     return note.isLong ? "#00ffcc" : "#ffffff";
 }
 
+function drawNote(note) {
+    if (!note.isLong) {
+        ctx.fillStyle = note.missed ? "#333" : getNoteColor(note);
+        ctx.fillRect(note.x + 5, note.y, note.w - 10, note.h);
+        return;
+    }
+
+    const bodyX = note.x + 7;
+    const bodyW = note.w - 14;
+    const bodyY = note.y;
+    const bodyH = Math.max(0, note.h);
+    const heldH = Math.min(note.heldPx, bodyH);
+    const missedH = Math.min(note.missedPx, bodyH);
+    const neutralH = Math.max(0, bodyH - heldH - missedH);
+
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 255, 204, 0.2)";
+    ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
+
+    if (neutralH > 0) {
+        ctx.fillStyle = note.processed ? "rgba(0, 216, 255, 0.45)" : "rgba(255, 255, 255, 0.72)";
+        ctx.fillRect(bodyX, bodyY + heldH, bodyW, neutralH);
+    }
+
+    if (heldH > 0) {
+        ctx.fillStyle = "#45ff7a";
+        ctx.fillRect(bodyX, bodyY, bodyW, heldH);
+    }
+
+    if (missedH > 0) {
+        ctx.fillStyle = "#e23b3b";
+        ctx.fillRect(bodyX, bodyY + bodyH - missedH, bodyW, missedH);
+    }
+
+    ctx.strokeStyle = note.holding ? "#7dff9f" : "#00ffcc";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(bodyX, bodyY, bodyW, bodyH);
+
+    ctx.fillStyle = note.holding ? "#7dff9f" : "#00f5ff";
+    ctx.fillRect(bodyX - 2, bodyY - 8, bodyW + 4, 16);
+
+    ctx.fillStyle = note.completed ? "#7dff9f" : (note.missed ? "#ff3b3b" : "#ffd400");
+    ctx.fillRect(bodyX - 2, bodyY + bodyH - 8, bodyW + 4, 16);
+
+    ctx.fillStyle = "#111";
+    ctx.font = "bold 13px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("START", bodyX + bodyW / 2, bodyY + 5);
+    ctx.fillText(note.missed ? "MISS" : "END", bodyX + bodyW / 2, bodyY + bodyH + 5);
+    ctx.restore();
+}
+
 function updateLongNote(note, index) {
     if (note.holding) {
         if (!activeKeys.has(keys[note.lane])) {
@@ -813,6 +854,7 @@ function updateLongNote(note, index) {
         }
 
         note.h -= speed;
+        note.heldPx = Math.min(note.originalH, note.heldPx + speed);
         note.holdScoreTimer += speed;
         if (note.holdScoreTimer >= 24) {
             note.holdScoreTimer = 0;
@@ -822,6 +864,7 @@ function updateLongNote(note, index) {
         }
 
         if (note.h <= 5) {
+            note.completed = true;
             notes.splice(index, 1);
             applyJudgment("PERFECT", "#00f5ff");
             recoverFromCombo(2, true);
@@ -831,6 +874,7 @@ function updateLongNote(note, index) {
 
     if (note.missed || (note.y + note.h > judgeLineY + hitWindows[2].range && !note.processed)) {
         note.missed = true;
+        note.missedPx = Math.min(note.originalH, note.missedPx + speed * 1.7);
         hp -= 0.35;
         if (!note.brickPenalty) {
             note.brickPenalty = true;
@@ -1109,18 +1153,6 @@ function loadLeaderboard() {
     }
 }
 
-async function loadRemoteLeaderboard() {
-    if (!remoteDb) return null;
-
-    const snapshot = await remoteDb
-        .collection("slime_rhythm_scores")
-        .orderBy("score", "desc")
-        .limit(50)
-        .get();
-
-    return snapshot.docs.map((doc) => doc.data());
-}
-
 async function saveScore() {
     const record = {
         id: playerId || "PLAYER",
@@ -1129,15 +1161,17 @@ async function saveScore() {
         date: new Date().toISOString()
     };
 
-    if (remoteDb) {
-        try {
-            await remoteDb.collection("slime_rhythm_scores").add(record);
-            const records = await loadRemoteLeaderboard();
-            const rank = records.findIndex((entry) => entry.id === record.id && entry.score === record.score && entry.date === record.date) + 1;
-            return { rank: rank || records.length, records, source: "ONLINE" };
-        } catch (error) {
-            console.warn("Remote leaderboard failed. Falling back to local leaderboard.", error);
-        }
+    try {
+        const response = await fetch("/api/rankings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(record)
+        });
+
+        if (response.ok) return response.json();
+        console.warn("CSV leaderboard failed. Falling back to local leaderboard.", await response.text());
+    } catch (error) {
+        console.warn("CSV leaderboard unavailable. Falling back to local leaderboard.", error);
     }
 
     const records = loadLeaderboard();

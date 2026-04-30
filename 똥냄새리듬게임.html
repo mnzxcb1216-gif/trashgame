@@ -656,6 +656,7 @@ let judgmentText = "";
 let judgmentColor = "#fff";
 let judgmentAlpha = 0;
 let playerId = "";
+let currentMode = "x1";
 let happyTimer = 0;
 const maxBricks = 8;
 const leaderboardKey = "slime-rhythm-leaderboard";
@@ -693,6 +694,7 @@ function preStart(selectedSpeed) {
     }
 
     playerId = sanitizedId;
+    currentMode = getModeFromSpeed(selectedSpeed);
     playerIdInput.value = sanitizedId;
     idErrorEl.innerText = "";
     speed = selectedSpeed;
@@ -790,6 +792,12 @@ function updateNotes() {
 function getNoteColor(note) {
     if (note.lane === 4) return "#ffd400";
     return note.isLong ? "#00ffcc" : "#ffffff";
+}
+
+function getModeFromSpeed(selectedSpeed) {
+    if (selectedSpeed === 15) return "x5";
+    if (selectedSpeed === 7) return "x2";
+    return "x1";
 }
 
 function drawNote(note) {
@@ -1158,6 +1166,7 @@ async function saveScore() {
         id: playerId || "PLAYER",
         score,
         grade: gradeEl.innerText,
+        mode: currentMode,
         date: new Date().toISOString()
     };
 
@@ -1179,12 +1188,13 @@ async function saveScore() {
     records.push(record);
     records.sort((a, b) => b.score - a.score);
     localStorage.setItem(leaderboardKey, JSON.stringify(records.slice(0, 50)));
-    return { rank: records.findIndex((entry) => entry === record) + 1, records: records.slice(0, 50), source: "LOCAL" };
+    const modeRecords = records.filter((entry) => (entry.mode || "x1") === currentMode);
+    return { rank: modeRecords.findIndex((entry) => entry === record) + 1, records: modeRecords.slice(0, 50), source: "LOCAL", mode: currentMode };
 }
 
 function renderLeaderboard(result) {
-    const { rank, records, source } = result;
-    rankSummaryEl.innerText = `${playerId}님의 현재 순위: ${rank}위 (${source})`;
+    const { rank, records, source, mode } = result;
+    rankSummaryEl.innerText = `${playerId}님의 ${mode || currentMode} 모드 순위: ${rank}위 (${source})`;
     leaderboardEl.innerHTML = "";
 
     records.slice(0, 10).forEach((record, index) => {

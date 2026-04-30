@@ -26,15 +26,20 @@ app.get("/game", (req, res) => {
 });
 
 app.get("/api/rankings", (req, res) => {
-  res.json(readRankings().slice(0, 50));
+  const mode = sanitizeMode(req.query?.mode);
+  const rankings = readRankings()
+    .filter((record) => !mode || record.mode === mode)
+    .slice(0, 50);
+  res.json(rankings);
 });
 
 app.post("/api/rankings", (req, res) => {
   const id = sanitizePlayerId(req.body?.id);
   const score = Number(req.body?.score);
   const grade = sanitizeGrade(req.body?.grade);
+  const mode = sanitizeMode(req.body?.mode);
 
-  if (!id || !Number.isFinite(score) || score < 0) {
+  if (!id || !Number.isFinite(score) || score < 0 || !mode) {
     res.status(400).json({ error: "Invalid ranking payload" });
     return;
   }
@@ -43,16 +48,18 @@ app.post("/api/rankings", (req, res) => {
     id,
     score: Math.round(score),
     grade,
+    mode,
     date: new Date().toISOString()
   };
-  const records = [...readRankings(), record]
+  const allRecords = [...readRankings(), record]
     .sort((a, b) => b.score - a.score || a.date.localeCompare(b.date))
     .slice(0, 200);
+  const modeRecords = allRecords.filter((entry) => entry.mode === mode);
 
-  writeRankings(records);
+  writeRankings(allRecords);
 
-  const rank = records.findIndex((entry) => entry.date === record.date && entry.id === record.id) + 1;
-  res.json({ rank, records: records.slice(0, 50), source: "CSV" });
+  const rank = modeRecords.findIndex((entry) => entry.date === record.date && entry.id === record.id) + 1;
+  res.json({ rank, records: modeRecords.slice(0, 50), source: "CSV", mode });
 });
 
 app.listen(port, () => {
@@ -61,7 +68,7 @@ app.listen(port, () => {
 
 function ensureRankFile() {
   if (!fs.existsSync(rankFile)) {
-    fs.writeFileSync(rankFile, "id,score,grade,date\n", "utf8");
+    fs.writeFileSync(rankFile, "id,score,grade,mode,date\n", "utf8");
   }
 }
 
@@ -79,6 +86,7 @@ function readRankings() {
       id: sanitizePlayerId(row.id) || "PLAYER",
       score: Number(row.score) || 0,
       grade: sanitizeGrade(row.grade),
+      mode: sanitizeMode(row.mode) || "x1",
       date: row.date || ""
     }))
     .sort((a, b) => b.score - a.score || a.date.localeCompare(b.date));
@@ -87,7 +95,7 @@ function readRankings() {
 function writeRankings(records) {
   const csv = stringify(records, {
     header: true,
-    columns: ["id", "score", "grade", "date"]
+    columns: ["id", "score", "grade", "mode", "date"]
   });
   fs.writeFileSync(rankFile, csv, "utf8");
 }
@@ -102,4 +110,9 @@ function sanitizePlayerId(value) {
 function sanitizeGrade(value) {
   const grade = String(value || "F").trim().toUpperCase();
   return /^(SSS|S|A|B|F)$/.test(grade) ? grade : "F";
+}
+
+function sanitizeMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  return /^(x1|x2|x5)$/.test(mode) ? mode : "";
 }

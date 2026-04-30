@@ -86,6 +86,13 @@
             box-shadow: 0 0 16px rgba(255, 212, 0, 0.45);
         }
 
+        .touch-key.disabled {
+            color: #555;
+            background: #090909;
+            border-color: #1b1b1b;
+            opacity: 0.45;
+        }
+
         .touch-key:focus-visible {
             outline: 3px solid rgba(0, 216, 255, 0.45);
             outline-offset: 2px;
@@ -541,7 +548,7 @@
                 <div id="id-error"></div>
             </div>
             <div class="btn-group">
-                <button type="button" data-speed="3">LEVEL x1</button>
+                <button type="button" data-speed="4.2">LEVEL x1</button>
                 <button type="button" data-speed="7">LEVEL x2</button>
                 <button type="button" data-speed="15">LEVEL x5</button>
             </div>
@@ -564,9 +571,9 @@
                 <button type="button" class="touch-key" data-lane="0">Q</button>
                 <button type="button" class="touch-key" data-lane="1">W</button>
                 <button type="button" class="touch-key" data-lane="2">E</button>
-                <button type="button" class="touch-key" data-lane="3">R</button>
+                <button type="button" class="touch-key mode-advanced" data-lane="3">R</button>
                 <button type="button" class="touch-key" data-lane="4">SPACE</button>
-                <button type="button" class="touch-key" data-lane="5">U</button>
+                <button type="button" class="touch-key mode-advanced" data-lane="5">U</button>
                 <button type="button" class="touch-key" data-lane="6">I</button>
                 <button type="button" class="touch-key" data-lane="7">O</button>
                 <button type="button" class="touch-key" data-lane="8">P</button>
@@ -614,6 +621,11 @@ const touchButtons = [...document.querySelectorAll(".touch-key")];
 const keys = ["q", "w", "e", "r", " ", "u", "i", "o", "p"];
 const keyLabels = ["Q", "W", "E", "R", "SPACE", "U", "I", "O", "P"];
 const laneCount = keys.length;
+const levelLaneMap = {
+    x1: [0, 1, 2, 4, 6, 7, 8],
+    x2: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    x5: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+};
 const standardWidth = canvas.width / 11;
 const laneWidths = [
     standardWidth,
@@ -658,6 +670,7 @@ let judgmentAlpha = 0;
 let playerId = "";
 let currentMode = "x1";
 let happyTimer = 0;
+let lastFrameTime = 0;
 const maxBricks = 8;
 const leaderboardKey = "slime-rhythm-leaderboard";
 
@@ -674,6 +687,7 @@ function resetState() {
     stonePos = -100;
     brickCount = 0;
     lastNoteTime = 0;
+    lastFrameTime = 0;
     judgmentText = "";
     judgmentAlpha = 0;
     happyTimer = 0;
@@ -695,6 +709,7 @@ function preStart(selectedSpeed) {
 
     playerId = sanitizedId;
     currentMode = getModeFromSpeed(selectedSpeed);
+    updateTouchMode();
     playerIdInput.value = sanitizedId;
     idErrorEl.innerText = "";
     speed = selectedSpeed;
@@ -726,7 +741,8 @@ class Shard {
 }
 
 function createNote(time) {
-    const lane = Math.floor(Math.random() * laneCount);
+    const activeLanes = getActiveLanes();
+    const lane = activeLanes[Math.floor(Math.random() * activeLanes.length)];
     const isLong = Math.random() > 0.8;
     notes.push({
         lane,
@@ -749,20 +765,29 @@ function createNote(time) {
 }
 
 function drawLanes() {
+    const enabledLanes = new Set(getActiveLanes());
+
     laneX.forEach((x, i) => {
-        ctx.strokeStyle = "#222";
+        const enabled = enabledLanes.has(i);
+        ctx.strokeStyle = enabled ? "#222" : "#111";
         ctx.lineWidth = 1;
         ctx.strokeRect(x, 0, laneWidths[i], canvas.height);
 
         if (activeKeys.has(keys[i])) {
             const grad = ctx.createLinearGradient(0, judgeLineY, 0, judgeLineY - 300);
-            grad.addColorStop(0, "rgba(255, 212, 0, 0.42)");
+            grad.addColorStop(0, "rgba(255, 212, 0, 0.7)");
             grad.addColorStop(1, "transparent");
             ctx.fillStyle = grad;
             ctx.fillRect(x, 0, laneWidths[i], judgeLineY);
+
+            ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
+            ctx.fillRect(x + 3, judgeLineY - 22, laneWidths[i] - 6, 22);
+        } else if (!enabled) {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.48)";
+            ctx.fillRect(x, 0, laneWidths[i], canvas.height);
         }
 
-        ctx.fillStyle = activeKeys.has(keys[i]) ? "#ffd400" : "#666";
+        ctx.fillStyle = activeKeys.has(keys[i]) ? "#ffd400" : (enabled ? "#666" : "#252525");
         ctx.font = "bold 16px Arial";
         ctx.textAlign = "center";
         ctx.fillText(keyLabels[i], x + laneWidths[i] / 2, judgeLineY + 40);
@@ -800,6 +825,19 @@ function getModeFromSpeed(selectedSpeed) {
     return "x1";
 }
 
+function getActiveLanes() {
+    return levelLaneMap[currentMode] || levelLaneMap.x2;
+}
+
+function updateTouchMode() {
+    const enabledLanes = new Set(getActiveLanes());
+    touchButtons.forEach((button, index) => {
+        const enabled = enabledLanes.has(index);
+        button.classList.toggle("disabled", !enabled);
+        button.disabled = !enabled;
+    });
+}
+
 function drawNote(note) {
     if (!note.isLong) {
         ctx.fillStyle = note.missed ? "#333" : getNoteColor(note);
@@ -811,44 +849,59 @@ function drawNote(note) {
     const bodyW = note.w - 14;
     const bodyY = note.y;
     const bodyH = Math.max(0, note.h);
-    const heldH = Math.min(note.heldPx, bodyH);
+    const eatenH = Math.min(note.heldPx, bodyH);
     const missedH = Math.min(note.missedPx, bodyH);
-    const neutralH = Math.max(0, bodyH - heldH - missedH);
+    const visibleY = bodyY + eatenH;
+    const visibleH = Math.max(0, bodyH - eatenH);
 
     ctx.save();
-    ctx.fillStyle = "rgba(0, 255, 204, 0.2)";
-    ctx.fillRect(bodyX, bodyY, bodyW, bodyH);
 
-    if (neutralH > 0) {
-        ctx.fillStyle = note.processed ? "rgba(0, 216, 255, 0.45)" : "rgba(255, 255, 255, 0.72)";
-        ctx.fillRect(bodyX, bodyY + heldH, bodyW, neutralH);
+    if (eatenH > 0) {
+        const biteY = bodyY + eatenH;
+        ctx.fillStyle = "rgba(125, 255, 159, 0.16)";
+        ctx.fillRect(bodyX, bodyY, bodyW, eatenH);
+        ctx.strokeStyle = "#7dff9f";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([8, 7]);
+        ctx.beginPath();
+        ctx.moveTo(bodyX + 4, biteY);
+        for (let x = bodyX + 4; x <= bodyX + bodyW - 4; x += 12) {
+            ctx.lineTo(x + 6, biteY + (x % 24 === 0 ? 7 : -5));
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
     }
 
-    if (heldH > 0) {
-        ctx.fillStyle = "#45ff7a";
-        ctx.fillRect(bodyX, bodyY, bodyW, heldH);
+    if (visibleH > 0) {
+        const bodyGradient = ctx.createLinearGradient(0, visibleY, 0, visibleY + visibleH);
+        bodyGradient.addColorStop(0, note.holding ? "#8dffe8" : "#ffffff");
+        bodyGradient.addColorStop(1, note.missed ? "#7a2727" : "#00bfa5");
+        ctx.fillStyle = bodyGradient;
+        ctx.fillRect(bodyX, visibleY, bodyW, visibleH);
+
+        if (missedH > 0) {
+            ctx.fillStyle = "rgba(226, 59, 59, 0.86)";
+            ctx.fillRect(bodyX, bodyY + bodyH - missedH, bodyW, Math.min(missedH, visibleH));
+        }
+
+        ctx.strokeStyle = note.holding ? "#7dff9f" : (note.missed ? "#ff3b3b" : "#00ffcc");
+        ctx.lineWidth = note.holding ? 6 : 4;
+        ctx.strokeRect(bodyX, visibleY, bodyW, visibleH);
     }
 
-    if (missedH > 0) {
-        ctx.fillStyle = "#e23b3b";
-        ctx.fillRect(bodyX, bodyY + bodyH - missedH, bodyW, missedH);
+    if (note.holding) {
+        ctx.fillStyle = "rgba(125, 255, 159, 0.28)";
+        ctx.fillRect(bodyX - 6, visibleY - 10, bodyW + 12, 20);
     }
-
-    ctx.strokeStyle = note.holding ? "#7dff9f" : "#00ffcc";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(bodyX, bodyY, bodyW, bodyH);
 
     ctx.fillStyle = note.holding ? "#7dff9f" : "#00f5ff";
-    ctx.fillRect(bodyX - 2, bodyY - 8, bodyW + 4, 16);
+    ctx.fillRect(bodyX - 3, visibleY - 8, bodyW + 6, 16);
 
-    ctx.fillStyle = note.completed ? "#7dff9f" : (note.missed ? "#ff3b3b" : "#ffd400");
-    ctx.fillRect(bodyX - 2, bodyY + bodyH - 8, bodyW + 4, 16);
+    if (!note.missed && visibleH > 14) {
+        ctx.fillStyle = "#ffd400";
+        ctx.fillRect(bodyX - 3, bodyY + bodyH - 8, bodyW + 6, 16);
+    }
 
-    ctx.fillStyle = "#111";
-    ctx.font = "bold 13px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("START", bodyX + bodyW / 2, bodyY + 5);
-    ctx.fillText(note.missed ? "MISS" : "END", bodyX + bodyW / 2, bodyY + bodyH + 5);
     ctx.restore();
 }
 
@@ -863,6 +916,9 @@ function updateLongNote(note, index) {
 
         note.h -= speed;
         note.heldPx = Math.min(note.originalH, note.heldPx + speed);
+        if (Math.random() < 0.45) {
+            particles.push(new Shard(note.x + note.w / 2 + (Math.random() - 0.5) * note.w * 0.55, note.y + note.heldPx, "#7dff9f"));
+        }
         note.holdScoreTimer += speed;
         if (note.holdScoreTimer >= 24) {
             note.holdScoreTimer = 0;
@@ -947,6 +1003,11 @@ function updateCharacter() {
 
 function update(time) {
     if (!gameActive) return;
+
+    if (lastFrameTime) {
+        hp -= (time - lastFrameTime) / 1000;
+    }
+    lastFrameTime = time;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawLanes();
@@ -1098,6 +1159,7 @@ function handleHit(laneIndex) {
 
 function pressLane(laneIndex) {
     if (!gameActive || laneIndex < 0 || laneIndex >= keys.length) return;
+    if (!getActiveLanes().includes(laneIndex)) return;
 
     const key = keys[laneIndex];
     if (activeKeys.has(key)) return;
@@ -1274,6 +1336,7 @@ window.addEventListener("keyup", (event) => {
 renderBrickStack();
 updateCharacter();
 updateUI();
+updateTouchMode();
 </script>
 </body>
 </html>

@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>헤라클레스 리듬</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #050505;
+            --panel: #111;
+            --panel-border: #343434;
+            --text: #f5f5f5;
+            --muted: #9a9a9a;
+            --accent: #00d8ff;
+            --warn: #ffd400;
+            --danger: #ff3b3b;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: "Arial Black", Impact, system-ui, sans-serif;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: min(100vw, 1120px);
+            height: 100vh;
+            margin: 0 auto;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: minmax(0, 700px) 320px;
+            gap: 18px;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #gameCanvas {
+            width: 100%;
+            max-width: 700px;
+            aspect-ratio: 700 / 850;
+            max-height: calc(100vh - 32px);
+            background: #080808;
+            border-left: 4px solid #333;
+            border-right: 4px solid #333;
+            display: block;
+        }
+
+        #play-area {
+            width: 100%;
+            max-width: 700px;
+            display: grid;
+            gap: 10px;
+        }
+
+        #touch-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr 3fr 1fr 1fr 1fr 1fr;
+            gap: 4px;
+            width: 100%;
+            touch-action: none;
+            user-select: none;
+        }
+
+        .touch-key {
+            min-width: 0;
+            min-height: 58px;
+            padding: 0;
+            color: #d8d8d8;
+            background: #151515;
+            border: 2px solid #3a3a3a;
+            border-radius: 6px;
+            font: 900 clamp(0.68rem, 2.4vw, 0.95rem) system-ui, sans-serif;
+        }
+
+        .touch-key.active {
+            color: #111;
+            background: var(--warn);
+            border-color: #fff4a2;
+            box-shadow: 0 0 16px rgba(255, 212, 0, 0.45);
+        }
+
+        .touch-key:focus-visible {
+            outline: 3px solid rgba(0, 216, 255, 0.45);
+            outline-offset: 2px;
+        }
+
+        #sidebar {
+            width: 100%;
+            padding: 18px;
+            background: var(--panel);
+            border: 3px solid var(--panel-border);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 0;
+        }
+
+        #grade {
+            min-height: 68px;
+            font-size: clamp(2.2rem, 7vw, 3.5rem);
+            color: var(--accent);
+            font-style: italic;
+            text-shadow: 0 0 10px var(--accent);
+        }
+
+        #score {
+            min-height: 44px;
+            margin-bottom: 10px;
+            font-size: clamp(1.5rem, 4vw, 2.2rem);
+        }
+
+        #char-box {
+            position: relative;
+            width: 100%;
+            height: min(44vh, 450px);
+            min-height: 300px;
+            margin-bottom: 15px;
+            overflow: hidden;
+            background: radial-gradient(circle, #242424 0%, #030303 72%);
+            border: 2px solid #333;
+            border-radius: 8px;
+        }
+
+        #char-box::before {
+            content: "";
+            position: absolute;
+            inset: auto 16px 22px;
+            height: 14px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.13), transparent);
+            border-radius: 999px;
+        }
+
+        #brick-stack {
+            position: absolute;
+            top: var(--brick-y, 40px);
+            left: 50%;
+            z-index: 12;
+            width: 220px;
+            transform: translateX(-50%) rotate(var(--stack-rot, 0deg));
+            transition: top 0.22s cubic-bezier(.2,.9,.25,1.2), transform 0.16s ease;
+        }
+
+        .brick-row {
+            display: flex;
+            justify-content: center;
+            height: 24px;
+            margin-top: -2px;
+        }
+
+        .brick {
+            width: 68px;
+            height: 24px;
+            margin: 0 2px;
+            background: linear-gradient(#b45a34, #7e3323);
+            border: 2px solid #451b14;
+            border-radius: 3px;
+            box-shadow: inset 0 4px rgba(255,255,255,0.16), 0 4px 8px rgba(0,0,0,0.35);
+        }
+
+        #brick-stack .brick:nth-child(2n) {
+            background: linear-gradient(#d17642, #8c3a24);
+        }
+
+        .flying-brick {
+            position: absolute;
+            z-index: 30;
+            top: var(--start-y);
+            left: 50%;
+            width: 64px;
+            height: 24px;
+            margin-left: -32px;
+            background: linear-gradient(#d17642, #8c3a24);
+            border: 2px solid #451b14;
+            border-radius: 3px;
+            pointer-events: none;
+            animation: flyBrick 0.72s ease-out forwards;
+        }
+
+        @keyframes flyBrick {
+            to {
+                opacity: 0;
+                transform: translate(var(--fly-x), -170px) rotate(var(--fly-rot));
+            }
+        }
+
+        #slime {
+            position: absolute;
+            bottom: 34px;
+            left: 50%;
+            z-index: 8;
+            width: var(--slime-w, 150px);
+            height: var(--slime-h, 122px);
+            transform: translateX(-50%) translateY(var(--slime-y, 0px));
+            transform-origin: 50% 100%;
+            transition: width 0.16s ease, height 0.16s ease, transform 0.16s ease;
+        }
+
+        #slime::before {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -13px;
+            width: calc(var(--slime-w, 150px) + 42px);
+            height: 26px;
+            transform: translateX(-50%);
+            background: rgba(36, 255, 185, 0.22);
+            filter: blur(4px);
+            border-radius: 50%;
+        }
+
+        .slime-body {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 34% 24%, rgba(255,255,255,0.78) 0 12px, transparent 13px),
+                radial-gradient(circle at 64% 18%, rgba(255,255,255,0.32) 0 18px, transparent 19px),
+                linear-gradient(180deg, #63ffd1, #13c78f 58%, #078c68);
+            border: 4px solid #034e43;
+            border-radius: 48% 48% 44% 44% / 58% 58% 36% 36%;
+            box-shadow: inset 0 -18px rgba(0, 85, 70, 0.3), 0 10px 22px rgba(0,0,0,0.42);
+            animation: slimeIdle 1.8s ease-in-out infinite;
+        }
+
+        .slime-eye {
+            position: absolute;
+            top: 42%;
+            z-index: 3;
+            width: 15px;
+            height: 20px;
+            background: #041b1a;
+            border-radius: 50%;
+            transition: transform 0.12s ease, height 0.12s ease;
+        }
+
+        .slime-eye.left { left: 35%; }
+        .slime-eye.right { right: 35%; }
+
+        .slime-mouth {
+            position: absolute;
+            left: 50%;
+            top: 61%;
+            z-index: 3;
+            width: 36px;
+            height: 13px;
+            transform: translateX(-50%);
+            border-bottom: 5px solid #05322e;
+            border-radius: 50%;
+            transition: all 0.12s ease;
+        }
+
+        #char-box.happy .slime-mouth {
+            width: 48px;
+            height: 22px;
+            border: 0;
+            background: #073b34;
+            border-radius: 0 0 999px 999px;
+            box-shadow: inset 0 -6px #ff8cc7;
+        }
+
+        #char-box.happy .slime-eye {
+            height: 10px;
+            transform: translateY(3px);
+            border-radius: 999px;
+        }
+
+        #char-box.strained .slime-body {
+            animation: slimeStrain 0.12s ease-in-out infinite alternate;
+        }
+
+        #char-box.crushed .slime-eye {
+            height: 7px;
+            transform: translateY(8px) scaleX(1.35);
+        }
+
+        #char-box.crushed .slime-mouth {
+            width: 28px;
+            height: 18px;
+            border: 0;
+            background: #052a27;
+            border-radius: 50%;
+        }
+
+        .slime-splash,
+        .heal-spark {
+            position: absolute;
+            z-index: 35;
+            pointer-events: none;
+        }
+
+        .slime-splash {
+            left: 50%;
+            top: var(--splash-y, 275px);
+            width: var(--size, 16px);
+            height: var(--size, 16px);
+            margin-left: calc(var(--size, 16px) / -2);
+            background: #35ffc2;
+            border: 2px solid rgba(2, 76, 65, 0.7);
+            border-radius: 58% 42% 65% 35%;
+            animation: splashOut 0.78s ease-out forwards;
+        }
+
+        .heal-spark {
+            left: 50%;
+            top: 215px;
+            color: #7dff9f;
+            font: 900 20px system-ui, sans-serif;
+            text-shadow: 0 0 10px #28ff7c;
+            animation: healRise 0.78s ease-out forwards;
+        }
+
+        @keyframes slimeIdle {
+            0%, 100% { transform: scale(1, 1); }
+            50% { transform: scale(1.04, 0.97); }
+        }
+
+        @keyframes slimeStrain {
+            from { transform: translateX(-2px) scale(1.04, 0.96); }
+            to { transform: translateX(2px) scale(1.08, 0.93); }
+        }
+
+        @keyframes splashOut {
+            to {
+                opacity: 0;
+                transform: translate(var(--splash-x), var(--splash-drop)) scale(0.65) rotate(var(--splash-rot));
+            }
+        }
+
+        @keyframes healRise {
+            to {
+                opacity: 0;
+                transform: translate(var(--heal-x), -80px) scale(1.35);
+            }
+        }
+
+        .meter-label {
+            width: 100%;
+            color: var(--muted);
+            font-size: 0.9rem;
+            text-align: left;
+        }
+
+        #hp-bar-container {
+            width: 100%;
+            height: 30px;
+            margin-top: 10px;
+            overflow: hidden;
+            background: #222;
+            border: 2px solid #000;
+            border-radius: 8px;
+        }
+
+        #hp-bar {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--danger), var(--warn));
+            transition: width 0.08s linear;
+        }
+
+        .overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 1000;
+            padding: 24px;
+            background: rgba(0, 0, 0, 0.94);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .overlay[hidden] { display: none; }
+
+        .overlay h1 {
+            margin: 0 0 12px;
+            color: var(--warn);
+            font-size: clamp(2.2rem, 8vw, 4.8rem);
+            text-shadow: 0 0 20px #ff8a00;
+            letter-spacing: 0;
+        }
+
+        .overlay p {
+            max-width: 620px;
+            margin: 0 0 22px;
+            color: #bdbdbd;
+            font-family: system-ui, sans-serif;
+            font-weight: 700;
+            line-height: 1.5;
+        }
+
+        .id-box {
+            width: min(420px, 100%);
+            margin-bottom: 16px;
+            display: grid;
+            gap: 8px;
+            font-family: system-ui, sans-serif;
+            font-weight: 800;
+            text-align: left;
+        }
+
+        .id-box label {
+            color: #d8d8d8;
+            font-size: 0.95rem;
+        }
+
+        .id-box input {
+            width: 100%;
+            height: 48px;
+            padding: 0 14px;
+            color: #fff;
+            background: #171717;
+            border: 2px solid #444;
+            border-radius: 8px;
+            font: 900 1.05rem system-ui, sans-serif;
+            outline: none;
+        }
+
+        .id-box input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 216, 255, 0.18);
+        }
+
+        #id-error {
+            min-height: 20px;
+            color: #ff8c8c;
+            font-size: 0.86rem;
+        }
+
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        button {
+            min-width: 132px;
+            min-height: 52px;
+            padding: 12px 22px;
+            color: #111;
+            background: #fff;
+            border: 0;
+            border-radius: 8px;
+            cursor: pointer;
+            font: 900 1rem system-ui, sans-serif;
+            transition: transform 0.12s ease, background 0.12s ease;
+        }
+
+        button:hover,
+        button:focus-visible {
+            background: var(--warn);
+            transform: translateY(-1px);
+            outline: none;
+        }
+
+        #result-score {
+            color: #fff;
+            font-size: clamp(1.8rem, 6vw, 3rem);
+        }
+
+        #rank-summary {
+            margin: 8px 0 14px;
+            color: #7dff9f;
+            font: 900 1.25rem system-ui, sans-serif;
+        }
+
+        #leaderboard {
+            width: min(520px, 100%);
+            max-height: 260px;
+            margin: 0 0 18px;
+            padding: 0;
+            overflow: auto;
+            list-style: none;
+            font-family: system-ui, sans-serif;
+            font-weight: 800;
+        }
+
+        #leaderboard li {
+            display: grid;
+            grid-template-columns: 48px 1fr auto;
+            gap: 12px;
+            align-items: center;
+            min-height: 38px;
+            padding: 8px 12px;
+            background: rgba(255,255,255,0.07);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        #leaderboard li.me {
+            color: #111;
+            background: var(--warn);
+        }
+
+        @media (max-width: 980px) {
+            body { overflow: auto; }
+
+            #game-container {
+                height: auto;
+                min-height: 100vh;
+                grid-template-columns: 1fr;
+                align-content: start;
+            }
+
+            #gameCanvas {
+                max-height: none;
+                margin: 0 auto;
+            }
+
+            #play-area {
+                margin: 0 auto;
+            }
+
+            #sidebar {
+                max-width: 700px;
+                margin: 0 auto 16px;
+            }
+
+            #char-box {
+                height: 320px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="menu" class="overlay">
+            <h1>SLIME RHYTHM</h1>
+            <p>Q W E R SPACE U I O P 키로 노트를 막아 슬라임을 짓누르는 벽돌을 날려버리세요.</p>
+            <div class="id-box">
+                <label for="player-id">PLAYER ID</label>
+                <input id="player-id" maxlength="16" autocomplete="off" placeholder="기록에 남길 ID 입력">
+                <div id="id-error"></div>
+            </div>
+            <div class="btn-group">
+                <button type="button" data-speed="3">LEVEL x1</button>
+                <button type="button" data-speed="7">LEVEL x2</button>
+                <button type="button" data-speed="15">LEVEL x5</button>
+            </div>
+        </div>
+
+        <div id="game-over" class="overlay" hidden>
+            <h1>GAME OVER</h1>
+            <p>최종 점수</p>
+            <div id="result-score">0</div>
+            <div id="rank-summary"></div>
+            <ol id="leaderboard"></ol>
+            <div class="btn-group">
+                <button type="button" id="restart-button">다시 시작</button>
+            </div>
+        </div>
+
+        <div id="play-area">
+            <canvas id="gameCanvas" width="700" height="850"></canvas>
+            <div id="touch-controls" aria-label="모바일 터치 입력">
+                <button type="button" class="touch-key" data-lane="0">Q</button>
+                <button type="button" class="touch-key" data-lane="1">W</button>
+                <button type="button" class="touch-key" data-lane="2">E</button>
+                <button type="button" class="touch-key" data-lane="3">R</button>
+                <button type="button" class="touch-key" data-lane="4">SPACE</button>
+                <button type="button" class="touch-key" data-lane="5">U</button>
+                <button type="button" class="touch-key" data-lane="6">I</button>
+                <button type="button" class="touch-key" data-lane="7">O</button>
+                <button type="button" class="touch-key" data-lane="8">P</button>
+            </div>
+        </div>
+
+        <aside id="sidebar">
+            <div id="grade">F</div>
+            <div id="score">0</div>
+
+            <div id="char-box">
+                <div id="brick-stack" aria-hidden="true"></div>
+
+                <div id="slime" aria-label="벽돌에 짓눌리는 슬라임">
+                    <div class="slime-body"></div>
+                    <div class="slime-eye left"></div>
+                    <div class="slime-eye right"></div>
+                    <div class="slime-mouth"></div>
+                </div>
+            </div>
+
+            <div class="meter-label">STAMINA</div>
+            <div id="hp-bar-container"><div id="hp-bar"></div></div>
+        </aside>
+    </div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const menu = document.getElementById("menu");
+const gameOverOverlay = document.getElementById("game-over");
+const scoreEl = document.getElementById("score");
+const gradeEl = document.getElementById("grade");
+const hpBarEl = document.getElementById("hp-bar");
+const charBoxEl = document.getElementById("char-box");
+const brickStackEl = document.getElementById("brick-stack");
+const resultScoreEl = document.getElementById("result-score");
+const playerIdInput = document.getElementById("player-id");
+const idErrorEl = document.getElementById("id-error");
+const rankSummaryEl = document.getElementById("rank-summary");
+const leaderboardEl = document.getElementById("leaderboard");
+const touchControlsEl = document.getElementById("touch-controls");
+const touchButtons = [...document.querySelectorAll(".touch-key")];
+
+const keys = ["q", "w", "e", "r", " ", "u", "i", "o", "p"];
+const keyLabels = ["Q", "W", "E", "R", "SPACE", "U", "I", "O", "P"];
+const laneCount = keys.length;
+const standardWidth = canvas.width / 11;
+const laneWidths = [
+    standardWidth,
+    standardWidth,
+    standardWidth,
+    standardWidth,
+    standardWidth * 3,
+    standardWidth,
+    standardWidth,
+    standardWidth,
+    standardWidth
+];
+const laneX = [];
+let curX = 0;
+for (const width of laneWidths) {
+    laneX.push(curX);
+    curX += width;
+}
+
+const judgeLineY = 750;
+const hitWindows = [
+    { label: "PERFECT", range: 32, score: 300, color: "#00f5ff" },
+    { label: "GREAT", range: 62, score: 180, color: "#73ff6b" },
+    { label: "GOOD", range: 96, score: 90, color: "#ffd400" }
+];
+
+let notes = [];
+let particles = [];
+let score = 0;
+let combo = 0;
+let hp = 100;
+let speed = 3;
+let gameActive = false;
+let animationId = 0;
+let lastNoteTime = 0;
+let activeKeys = new Set();
+let stonePos = -100;
+let brickCount = 0;
+let judgmentText = "";
+let judgmentColor = "#fff";
+let judgmentAlpha = 0;
+let playerId = "";
+let happyTimer = 0;
+const maxBricks = 8;
+const leaderboardKey = "slime-rhythm-leaderboard";
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function resetState() {
+    notes = [];
+    particles = [];
+    score = 0;
+    combo = 0;
+    hp = 100;
+    stonePos = -100;
+    brickCount = 0;
+    lastNoteTime = 0;
+    judgmentText = "";
+    judgmentAlpha = 0;
+    happyTimer = 0;
+    activeKeys.clear();
+    touchButtons.forEach((button) => button.classList.remove("active"));
+    charBoxEl.classList.remove("strained", "crushed", "happy");
+    renderBrickStack();
+    updateCharacter();
+    updateUI();
+}
+
+function preStart(selectedSpeed) {
+    const sanitizedId = playerIdInput.value.trim().replace(/[^\w가-힣-]/g, "").slice(0, 16);
+    if (!sanitizedId) {
+        idErrorEl.innerText = "ID를 입력해야 시작할 수 있습니다.";
+        playerIdInput.focus();
+        return;
+    }
+
+    playerId = sanitizedId;
+    playerIdInput.value = sanitizedId;
+    idErrorEl.innerText = "";
+    speed = selectedSpeed;
+    menu.hidden = true;
+    gameOverOverlay.hidden = true;
+    resetState();
+    gameActive = true;
+    cancelAnimationFrame(animationId);
+    animationId = requestAnimationFrame(update);
+}
+
+class Shard {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.vx = (Math.random() - 0.5) * 12;
+        this.vy = (Math.random() - 1) * 12;
+        this.life = 1;
+    }
+
+    draw() {
+        ctx.save();
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, 6, 6);
+        ctx.restore();
+    }
+}
+
+function createNote(time) {
+    const lane = Math.floor(Math.random() * laneCount);
+    const isLong = Math.random() > 0.8;
+    notes.push({
+        lane,
+        x: laneX[lane],
+        y: -100,
+        w: laneWidths[lane],
+        h: isLong ? 300 : 40,
+        originalH: isLong ? 300 : 40,
+        isLong,
+        processed: false,
+        holding: false,
+        missed: false,
+        brickPenalty: false,
+        holdScoreTimer: 0
+    });
+    lastNoteTime = time;
+}
+
+function drawLanes() {
+    laneX.forEach((x, i) => {
+        ctx.strokeStyle = "#222";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, 0, laneWidths[i], canvas.height);
+
+        if (activeKeys.has(keys[i])) {
+            const grad = ctx.createLinearGradient(0, judgeLineY, 0, judgeLineY - 300);
+            grad.addColorStop(0, "rgba(255, 212, 0, 0.42)");
+            grad.addColorStop(1, "transparent");
+            ctx.fillStyle = grad;
+            ctx.fillRect(x, 0, laneWidths[i], judgeLineY);
+        }
+
+        ctx.fillStyle = activeKeys.has(keys[i]) ? "#ffd400" : "#666";
+        ctx.font = "bold 16px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(keyLabels[i], x + laneWidths[i] / 2, judgeLineY + 40);
+    });
+
+    ctx.strokeStyle = "#00d8ff";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, judgeLineY, canvas.width, 4);
+}
+
+function updateNotes() {
+    for (let i = notes.length - 1; i >= 0; i--) {
+        const note = notes[i];
+        note.y += speed;
+
+        ctx.fillStyle = note.missed ? "#333" : getNoteColor(note);
+        ctx.fillRect(note.x + 5, note.y, note.w - 10, note.h);
+
+        if (note.isLong) {
+            updateLongNote(note, i);
+        } else if (note.y > canvas.height) {
+            notes.splice(i, 1);
+            failAction("MISS");
+        }
+    }
+}
+
+function getNoteColor(note) {
+    if (note.lane === 4) return "#ffd400";
+    return note.isLong ? "#00ffcc" : "#ffffff";
+}
+
+function updateLongNote(note, index) {
+    if (note.holding) {
+        if (!activeKeys.has(keys[note.lane])) {
+            note.holding = false;
+            note.missed = true;
+            failAction("MISS");
+            return;
+        }
+
+        note.h -= speed;
+        note.holdScoreTimer += speed;
+        if (note.holdScoreTimer >= 24) {
+            note.holdScoreTimer = 0;
+            score += 15;
+            combo += 1;
+            recoverFromCombo(0.45, true);
+        }
+
+        if (note.h <= 5) {
+            notes.splice(index, 1);
+            applyJudgment("PERFECT", "#00f5ff");
+            recoverFromCombo(2, true);
+        }
+        return;
+    }
+
+    if (note.missed || (note.y + note.h > judgeLineY + hitWindows[2].range && !note.processed)) {
+        note.missed = true;
+        hp -= 0.35;
+        if (!note.brickPenalty) {
+            note.brickPenalty = true;
+            addBrickPressure(1);
+        }
+        if (note.y > canvas.height) notes.splice(index, 1);
+    }
+}
+
+function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const particle = particles[i];
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vy += 0.5;
+        particle.life -= 0.02;
+        particle.draw();
+        if (particle.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function drawTextEffects() {
+    if (judgmentAlpha > 0) {
+        ctx.save();
+        ctx.globalAlpha = judgmentAlpha;
+        ctx.fillStyle = judgmentColor;
+        ctx.font = "bold 50px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(judgmentText, canvas.width / 2, 400);
+        ctx.restore();
+        judgmentAlpha -= 0.03;
+    }
+
+    if (combo > 0) {
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 54px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(combo + " COMBO", canvas.width / 2, 320);
+    }
+}
+
+function updateCharacter() {
+    stonePos = -100 + brickCount * 32;
+    const strain = Math.max(0, brickCount - 2);
+    charBoxEl.style.setProperty("--brick-y", 46 + brickCount * 24 + "px");
+    charBoxEl.style.setProperty("--stack-rot", strain * -0.35 + "deg");
+    charBoxEl.style.setProperty("--slime-w", 150 + brickCount * 13 + "px");
+    charBoxEl.style.setProperty("--slime-h", Math.max(48, 122 - brickCount * 10) + "px");
+    charBoxEl.style.setProperty("--slime-y", brickCount * 7 + "px");
+    charBoxEl.classList.toggle("strained", brickCount >= 3);
+    charBoxEl.classList.toggle("crushed", brickCount >= 6);
+
+    if (happyTimer > 0) {
+        happyTimer -= 1;
+        charBoxEl.classList.add("happy");
+    } else {
+        charBoxEl.classList.remove("happy");
+    }
+
+    if (brickCount >= 7) hp -= 0.9;
+}
+
+function update(time) {
+    if (!gameActive) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawLanes();
+
+    const noteInterval = 1500 / (speed / 2.5);
+    if (time - lastNoteTime > noteInterval) createNote(time);
+
+    updateNotes();
+    updateParticles();
+    drawTextEffects();
+    updateCharacter();
+    updateUI();
+
+    if (hp <= 0) gameOver();
+    else animationId = requestAnimationFrame(update);
+}
+
+function applyJudgment(text, color) {
+    judgmentText = text;
+    judgmentColor = color;
+    judgmentAlpha = 1;
+}
+
+function failAction(text) {
+    combo = 0;
+    hp -= 5;
+    addBrickPressure(1);
+    applyJudgment(text, "#ff3b3b");
+}
+
+function addBrickPressure(amount) {
+    brickCount = clamp(brickCount + amount, 0, maxBricks);
+    renderBrickStack();
+    burstSlime();
+}
+
+function recoverFromCombo(healAmount, knockBrick) {
+    hp = clamp(hp + healAmount, 0, 100);
+    happyTimer = 28;
+    spawnHealEffect(healAmount);
+    if (knockBrick && brickCount > 0) {
+        knockBrickAway();
+    }
+}
+
+function knockBrickAway() {
+    const startY = 46 + brickCount * 24;
+    brickCount = clamp(brickCount - 1, 0, maxBricks);
+    renderBrickStack();
+
+    const brick = document.createElement("div");
+    brick.className = "flying-brick";
+    brick.style.setProperty("--start-y", startY + "px");
+    brick.style.setProperty("--fly-x", (Math.random() > 0.5 ? 150 : -150) + Math.round(Math.random() * 45) + "px");
+    brick.style.setProperty("--fly-rot", (Math.random() > 0.5 ? 420 : -420) + "deg");
+    charBoxEl.appendChild(brick);
+    brick.addEventListener("animationend", () => brick.remove(), { once: true });
+}
+
+function burstSlime() {
+    const amount = 5 + brickCount;
+    for (let i = 0; i < amount; i++) {
+        const drop = document.createElement("div");
+        drop.className = "slime-splash";
+        drop.style.setProperty("--size", 10 + Math.round(Math.random() * 12) + "px");
+        drop.style.setProperty("--splash-y", 282 + Math.round(Math.random() * 28) + "px");
+        drop.style.setProperty("--splash-x", (Math.random() > 0.5 ? 1 : -1) * (58 + Math.random() * 92) + "px");
+        drop.style.setProperty("--splash-drop", 42 + Math.random() * 74 + "px");
+        drop.style.setProperty("--splash-rot", (Math.random() > 0.5 ? 160 : -160) + Math.round(Math.random() * 160) + "deg");
+        charBoxEl.appendChild(drop);
+        drop.addEventListener("animationend", () => drop.remove(), { once: true });
+    }
+}
+
+function spawnHealEffect(healAmount) {
+    const heal = document.createElement("div");
+    heal.className = "heal-spark";
+    heal.innerText = "+" + Math.round(healAmount);
+    heal.style.setProperty("--heal-x", (Math.random() > 0.5 ? 28 : -28) + "px");
+    charBoxEl.appendChild(heal);
+    heal.addEventListener("animationend", () => heal.remove(), { once: true });
+}
+
+function renderBrickStack() {
+    brickStackEl.innerHTML = "";
+    let remaining = brickCount;
+    let rowIndex = 0;
+
+    while (remaining > 0) {
+        const row = document.createElement("div");
+        row.className = "brick-row";
+        const rowCapacity = rowIndex % 2 === 0 ? 3 : 2;
+        const bricksInRow = Math.min(rowCapacity, remaining);
+
+        for (let j = 0; j < bricksInRow; j++) {
+            const brick = document.createElement("div");
+            brick.className = "brick";
+            row.appendChild(brick);
+        }
+
+        brickStackEl.appendChild(row);
+        remaining -= bricksInRow;
+        rowIndex += 1;
+    }
+}
+
+function findHitNote(laneIndex) {
+    let bestMatch = null;
+
+    for (const note of notes) {
+        if (note.lane !== laneIndex || note.processed || note.missed) continue;
+
+        const dist = Math.abs((note.y + note.h) - judgeLineY);
+        const window = hitWindows.find((entry) => dist <= entry.range);
+        if (!window) continue;
+
+        if (!bestMatch || dist < bestMatch.dist) {
+            bestMatch = { note, dist, window };
+        }
+    }
+
+    return bestMatch;
+}
+
+function handleHit(laneIndex) {
+    const match = findHitNote(laneIndex);
+    if (!match) {
+        hp -= 1;
+        addBrickPressure(1);
+        applyJudgment("BAD", "#ff7a7a");
+        return;
+    }
+
+    const { note, window } = match;
+    note.processed = true;
+    combo += 1;
+    score += window.score + Math.min(combo * 2, 200);
+    recoverFromCombo(window.label === "PERFECT" ? 4 : 2, true);
+    applyJudgment(window.label, window.color);
+
+    if (note.isLong) {
+        note.holding = true;
+        return;
+    }
+
+    notes.splice(notes.indexOf(note), 1);
+    spawnParticles(laneIndex, window.color);
+}
+
+function pressLane(laneIndex) {
+    if (!gameActive || laneIndex < 0 || laneIndex >= keys.length) return;
+
+    const key = keys[laneIndex];
+    if (activeKeys.has(key)) return;
+
+    activeKeys.add(key);
+    touchButtons[laneIndex]?.classList.add("active");
+    handleHit(laneIndex);
+}
+
+function releaseLane(laneIndex) {
+    if (laneIndex < 0 || laneIndex >= keys.length) return;
+
+    activeKeys.delete(keys[laneIndex]);
+    touchButtons[laneIndex]?.classList.remove("active");
+}
+
+function handleBadTouch(event) {
+    if (!gameActive) return;
+    if (event.target.closest(".touch-key, .overlay, #sidebar")) return;
+
+    event.preventDefault();
+    hp -= 1;
+    addBrickPressure(1);
+    applyJudgment("BAD", "#ff7a7a");
+}
+
+function spawnParticles(laneIndex, color) {
+    for (let i = 0; i < 16; i++) {
+        particles.push(new Shard(laneX[laneIndex] + laneWidths[laneIndex] / 2, judgeLineY, color));
+    }
+}
+
+function updateUI() {
+    hp = clamp(hp, 0, 100);
+    scoreEl.innerText = score.toLocaleString();
+    hpBarEl.style.width = hp + "%";
+
+    let grade = "F";
+    if (score > 50000) grade = "SSS";
+    else if (score > 30000) grade = "S";
+    else if (score > 10000) grade = "A";
+    else if (score > 5000) grade = "B";
+    gradeEl.innerText = grade;
+}
+
+function gameOver() {
+    gameActive = false;
+    cancelAnimationFrame(animationId);
+    charBoxEl.classList.add("crushed");
+    resultScoreEl.innerText = score.toLocaleString();
+    const rank = saveScore();
+    renderLeaderboard(rank);
+    gameOverOverlay.hidden = false;
+}
+
+function loadLeaderboard() {
+    try {
+        return JSON.parse(localStorage.getItem(leaderboardKey)) || [];
+    } catch {
+        return [];
+    }
+}
+
+function saveScore() {
+    const records = loadLeaderboard();
+    const record = {
+        id: playerId || "PLAYER",
+        score,
+        grade: gradeEl.innerText,
+        date: new Date().toISOString()
+    };
+
+    records.push(record);
+    records.sort((a, b) => b.score - a.score);
+    localStorage.setItem(leaderboardKey, JSON.stringify(records.slice(0, 50)));
+    return records.findIndex((entry) => entry === record) + 1;
+}
+
+function renderLeaderboard(myRank) {
+    const records = loadLeaderboard();
+    rankSummaryEl.innerText = `${playerId}님의 현재 순위: ${myRank}위`;
+    leaderboardEl.innerHTML = "";
+
+    records.slice(0, 10).forEach((record, index) => {
+        const item = document.createElement("li");
+        if (record.id === playerId && record.score === score) item.className = "me";
+        item.innerHTML = `<span>#${index + 1}</span><span>${escapeHtml(record.id)}</span><span>${Number(record.score).toLocaleString()}</span>`;
+        leaderboardEl.appendChild(item);
+    });
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+document.querySelectorAll("[data-speed]").forEach((button) => {
+    button.addEventListener("click", () => preStart(Number(button.dataset.speed)));
+});
+
+document.getElementById("restart-button").addEventListener("click", () => {
+    gameOverOverlay.hidden = true;
+    menu.hidden = false;
+    resetState();
+});
+
+playerIdInput.addEventListener("input", () => {
+    if (idErrorEl.innerText) idErrorEl.innerText = "";
+});
+
+touchButtons.forEach((button) => {
+    const laneIndex = Number(button.dataset.lane);
+
+    button.addEventListener("pointerdown", (event) => {
+        event.preventDefault();
+        button.setPointerCapture?.(event.pointerId);
+        pressLane(laneIndex);
+    });
+
+    button.addEventListener("pointerup", (event) => {
+        event.preventDefault();
+        releaseLane(laneIndex);
+    });
+
+    button.addEventListener("pointercancel", () => releaseLane(laneIndex));
+    button.addEventListener("lostpointercapture", () => releaseLane(laneIndex));
+});
+
+document.addEventListener("pointerdown", handleBadTouch, { passive: false });
+
+window.addEventListener("keydown", (event) => {
+    if (event.target === playerIdInput) return;
+
+    const key = event.key.toLowerCase();
+    const laneIndex = keys.indexOf(key);
+    if (laneIndex === -1) return;
+
+    event.preventDefault();
+    if (!gameActive) return;
+
+    pressLane(laneIndex);
+});
+
+window.addEventListener("keyup", (event) => {
+    if (event.target === playerIdInput) return;
+
+    const key = event.key.toLowerCase();
+    if (keys.includes(key)) {
+        event.preventDefault();
+        releaseLane(keys.indexOf(key));
+    }
+});
+
+renderBrickStack();
+updateCharacter();
+updateUI();
+</script>
+</body>
+</html>
